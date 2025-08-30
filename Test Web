@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Projektarbeit</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; }
+    label { display:block; margin-top:1rem; font-weight:600; }
+    input, button { width:100%; padding:.6rem; margin-top:.3rem; }
+    button { cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h1>Display configuration</h1>
+
+  <label>Name
+    <input id="name" placeholder="Office">
+  </label>
+
+  <button id="btnSave">Save and update</button>
+
+  <p id="statusMsg"></p>
+
+  <script>
+    async function loadName() {
+      try {
+        const res = await fetch('/api/config', { cache: 'no-store' });
+        if (!res.ok) throw new Error(res.status);
+        const cfg = await res.json();
+        document.getElementById('name').value = cfg.name || '';
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = 'Could not load config.';
+      }
+    }
+
+    async function saveName() {
+      const nameVal = document.getElementById('name').value.trim();
+      const statusEl = document.getElementById('statusMsg');
+
+      if (!nameVal) { statusEl.textContent = 'Please enter a name.'; return; }
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: nameVal })   // <-- solo enviamos "name"
+        });
+        statusEl.textContent = res.ok
+          ? 'Saved ✔️ and the screen updated.'
+          : 'Error while saving';
+      } catch (e) {
+        statusEl.textContent = 'Network error while saving.';
+      }
+    }
+
+    document.getElementById('btnSave').addEventListener('click', saveName);
+    loadName();
+  </script>
+</body>
+</html>
