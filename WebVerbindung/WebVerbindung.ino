@@ -1,0 +1,250 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <time.h>
+#include <vector>
+#include <ESPmDNS.h>
+#include <ArduinoJson.h>
+
+#include "DisplayManager.h"
+#include "RFIDManager.h"
+
+//WLAN-CONNECTION
+const char* WIFI_SSID = "Vodafone-F391";
+const char* WIFI_PASS = "hdcccQNBruMgmtmh";
+
+//Global declarations
+DisplayManager displayManager;
+RFIDManager rfidManager(21, 2);   // CS=21, RST=2
+
+std::vector<Person> people;
+String roomText = "324";
+String lastDate = "";
+
+WebServer server(80);
+int layoutOverride = 0;
+
+//RFID helpers
+String normalizeUID(const String& raw) {
+  String out; out.reserve(raw.length());
+  for (size_t i = 0; i < raw.length(); ++i) {
+    char c = raw[i];
+    if (isxdigit((unsigned char)c)) out += (char)toupper((unsigned char)c);
+  }
+  return out;
+}
+
+int findPersonIndexByUID(const String& uid) {
+  for (size_t i = 0; i < people.size(); ++i)
+    if (people[i].uid.equalsIgnoreCase(uid)) return (int)i;
+  return -1;
+}
+
+//Helpers date
+static String getCurrentDate() {
+  struct tm ti;
+  if (!getLocalTime(&ti)) return lastDate.length() ? lastDate : String("??.??.????");
+  char buf[11];
+  strftime(buf, sizeof(buf), "%d.%m.%Y", &ti);
+  return String(buf);
+}
+
+static void connectWiFiAndSyncTime() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println(WiFi.status() == WL_CONNECTED ? "\nWiFi OK" : "\nWiFi fallo/timeout");
+
+  // Zona horaria Europa/Berlin (cambio horario auto)
+  setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);
+  tzset();
+
+  // NTP (sin offsets, los maneja TZ)
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+
+  // Espera breve a que llegue la primera hora (opcional)
+  struct tm ti;
+  for (int i = 0; i < 20; ++i) {
+    if (getLocalTime(&ti)) break;
+    delay(200);
+  }
+}
+
+//Layout picker
+static LayoutType pickLayout(size_t n) {
+  if (n <= 1) return LayoutType::Display1;
+  if (n == 2) return LayoutType::Display2;
+  return LayoutType::Display3; // 3 o más (mostramos 3 primeras)
+}
+
+//API HTTP (CORS + JSON)
+static void sendCors() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+static void handleOptions() { sendCors(); server.send(204); }
+
+static void sendStateJson() {
+  StaticJsonDocument<1536> doc;
+  doc["room"] = roomText;
+  doc["layout"] = (layoutOverride > 0) ? layoutOverride : (int)pickLayout(people.size());
+  JsonArray arr = doc.createNestedArray("people");
+  for (size_t i = 0; i < people.size(); ++i) {
+    JsonObject o = arr.createNestedObject();
+    o["name"]   = people[i].name;
+    o["role"]   = people[i].role;
+    o["status"] = people[i].status;
+    o["uid"]    = people[i].uid;
+  }
+  String out; serializeJson(doc, out);
+  sendCors(); server.send(200, "application/json", out);
+}
+
+static bool applyStateFromJson(const String& body, String& err) {
+  StaticJsonDocument<2048> doc;
+  DeserializationError e = deserializeJson(doc, body);
+  if (e) { err = e.c_str(); return false; }
+
+  if (doc.containsKey("room")) {
+    roomText = (const char*)doc["room"];
+  }
+
+  if (doc.containsKey("people")) {
+    std::vector<Person> compact;
+    JsonArray arr = doc["people"].as<JsonArray>();
+
+    for (JsonVariant v : arr) {
+      JsonObject o = v.as<JsonObject>();
+      String name   = o["name"]   | "";
+      String role   = o["role"]   | "";
+      String status = o["status"] | "";
+      String uid    = o["uid"]    | "";
+
+      // Vacío => no se añade (no cuenta para layout)
+      if (name.length() == 0 && role.length() == 0) continue;
+
+      // Construye persona, preservando status/uid si ya existían
+      Person p;
+      p.name = name;
+      p.role = role;
+
+      int prevIdx = -1;
+      if (uid.length() > 0) {
+        prevIdx = findPersonIndexByUID(uid);
+      }
+      if (prevIdx < 0) {
+        for (size_t k = 0; k < people.size(); ++k) {
+          if (people[k].name == name && people[k].role == role) { prevIdx = (int)k; break; }
+        }
+      }
+
+      if (status.length() > 0)       p.status = status;
+      else if (prevIdx >= 0)         p.status = people[prevIdx].status;
+      else                           p.status = "Absent";
+
+      p.uid = uid.length() > 0 ? uid : (prevIdx >= 0 ? people[prevIdx].uid : "");
+
+      compact.push_back(p);
+    }
+
+    // Reemplaza: ahora people tiene 1, 2 o 3 entradas REALES
+    people.swap(compact);
+  }
+
+  return true;
+}
+
+static void handleGetState() {
+  sendStateJson();
+}
+
+static void handlePostState() {
+  String body = server.arg("plain");
+  String err;
+  if (!applyStateFromJson(body, err)) {
+    sendCors(); server.send(400, "text/plain", "JSON invalido: " + err); return;
+  }
+
+  // Libera el lector RFID del bus SPI antes de pintar
+  pinMode(21, OUTPUT);
+  digitalWrite(21, HIGH);
+
+  lastDate = getCurrentDate();
+  LayoutType lay = pickLayout(people.size());
+  displayManager.drawLayout(lay, roomText, lastDate, people);
+
+  sendCors(); server.send(200, "application/json", "{\"ok\":true}");
+}
+
+static void startHttpServer() {
+  server.on("/api/state", HTTP_OPTIONS, handleOptions);
+  server.on("/api/state", HTTP_GET,     handleGetState);
+  server.on("/api/state", HTTP_POST,    handlePostState);
+  server.begin();
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+
+  connectWiFiAndSyncTime();
+  lastDate = getCurrentDate();
+
+  displayManager.begin();
+  rfidManager.begin();
+
+  people.clear();
+
+  // Initial Layout
+  displayManager.drawLayout(pickLayout(people.size()), roomText, lastDate, people);
+
+  // mDNS (puedes abrir http://door.local)
+  if (MDNS.begin("door")) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println("mDNS: http://door.local");
+  }
+
+  startHttpServer();
+  Serial.print("HTTP ready in http://");
+  Serial.println(WiFi.localIP());
+}
+
+unsigned long lastRFIDms = 0;
+const unsigned long RFID_COOLDOWN = 700; // ms
+
+void loop() {
+  // Atiende HTTP
+  server.handleClient();
+
+  // RFID: alterna Present/Absent para la persona asociada al UID
+  String rawUid;
+  if (rfidManager.readUID(rawUid)) {
+    unsigned long now = millis();
+    if (now - lastRFIDms > RFID_COOLDOWN) {
+      lastRFIDms = now;
+
+      String uid = normalizeUID(rawUid);
+      int idx = findPersonIndexByUID(uid);
+
+      if (idx >= 0) {
+        people[idx].status = (people[idx].status == "Present") ? "Absent" : "Present";
+        Serial.printf("UID %s -> %s = %s\n",
+                      uid.c_str(), people[idx].name.c_str(), people[idx].status.c_str());
+
+        // Libera el bus SPI del lector antes de pintar
+        pinMode(21, OUTPUT);
+        digitalWrite(21, HIGH);
+
+        // Refresco parcial solo del rectángulo de status
+        displayManager.showStatusPartial(idx, people[idx].status);
+      } else {
+        Serial.printf("UID %s no asignado\n", uid.c_str());
+      }
+    }
+  }
+}
