@@ -26,7 +26,8 @@ public:
 
   void showStatusPartial(int personIndex, const String& status);
   void showDatePartial(const String& date);
-
+  void primeLayout(LayoutType layout, const std::vector<Person>& people);
+  
 private:
   void setFont(const GFXfont* f);
   void textLeft(int x, int y, const String& s);
@@ -38,7 +39,7 @@ private:
 
   // Geometría
   static constexpr int W = 800, H = 480;
-  static constexpr int railW = 120, railPad = 8;
+  static constexpr int railW = 120, railPad = 4;
   static constexpr int roomBoxH = 50, dateBoxH = 30, logoBoxH = 140, chipBoxH = 40;
   static constexpr int contentPad = 20;
 
