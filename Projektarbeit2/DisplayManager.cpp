@@ -127,7 +127,7 @@ void DisplayManager::draw3(const String&, const String&, const std::vector<Perso
 
 
   for (int i = 0; i < rows; ++i) {
-    //
+    //positioning of each rectangel
     const int y0 = topY + i* rowH;
     const int y1 = y0 +rowH;
 
@@ -161,16 +161,37 @@ void DisplayManager::draw3(const String&, const String&, const std::vector<Perso
   }
 }
 
-// ===== Parciales =====
+// Partials
 void DisplayManager::showStatusPartial(int idx, const String& status) {
-  if (idx < 0 || idx >= 3) return;
+  if (idx < 0 || idx >= 3) return; //There are only 3 rectangles
   auto r = statusRects[idx];
   if (r.w <= 0 || r.h <= 0) return;
 
-  display.setPartialWindow(r.x, r.y, r.w, r.h);
+  const int W = display.width();
+  const int H = display.height();
+
+  const int m = 8;
+  int ax = ((r.x - m) < 0) ? 0 : ((r.x - m) & ~7);
+  int ax_end = (r.x + r.w + m + 7) & ~7;
+  if (ax_end > W) ax_end = W;          
+  int ay = max(0, r.y - m);
+  int ay_end = min(H, r.y + r.h + m);
+  int aw = ax_end - ax;
+  int ah = ay_end - ay;
+  if (aw <= 0 || ah <= 0) return;            
+
+  // --- PULSO BLANCO ---
+  display.setPartialWindow(ax, ay, aw, ah);
   display.firstPage(); do {
-    display.fillRect(r.x, r.y, r.w, r.h, GxEPD_WHITE);
+    display.fillRect(ax, ay, aw, ah, GxEPD_WHITE);
+  } while (display.nextPage());
+
+  display.setPartialWindow(ax, ay, aw, ah);
+  display.firstPage(); do {
+    display.fillRect(ax, ay, aw, ah, GxEPD_WHITE);
     setFont(&FreeSansBold24pt7b);
+    display.setTextColor(GxEPD_BLACK, GxEPD_WHITE);
+    textCenteredInRect(r.x, r.y, r.w, r.h, status); 
     textCenteredInRect(r.x, r.y, r.w, r.h, status);
   } while (display.nextPage());
 }
@@ -201,4 +222,70 @@ void DisplayManager::textCenteredInRect(int rx, int ry, int rw, int rh, const St
   const int cy = ry + (rh + (int)h) / 2 - 2;
   display.setCursor(cx, cy);
   display.print(s);
+}
+
+
+// FOR RESETING
+// ===== Prime layout (no draw) =====
+void DisplayManager::primeLayout(LayoutType layout, const std::vector<Person>& p) {
+  // Igual que en drawLayout: preparar contentX/contentW
+  contentX = railW + 1;
+  contentW = W - contentX - 2;
+
+  // Limpia rects
+  statusRects[0] = {0,0,0,0};
+  statusRects[1] = {0,0,0,0};
+  statusRects[2] = {0,0,0,0};
+
+  if (layout == LayoutType::Display1) {
+    // Misma geometría que en draw1()
+    const int statusW = 560, statusH = 100;
+    const int sx = contentX + (contentW - statusW) / 2;
+    const int sy = 320 - statusH / 2;
+    statusRects[0] = { sx, sy, statusW, statusH };
+    return;
+  }
+
+  if (layout == LayoutType::Display2) {
+    // Misma geometría que en draw2()
+    const int left = contentX + contentPad;
+    const int topY = 5;
+    const int bottomY = H - 5;
+    const int rows = 2;
+    const int rowH = (bottomY - topY) / rows;
+
+    for (int i = 0; i < rows; ++i){
+      const int y0 = topY + i*rowH;
+      const int y1 = y0 + rowH;
+
+      const int roleBaseY = y0 + 20;
+      const int nameBaseY = roleBaseY + 38;
+      const int statusTop  = nameBaseY + 30;
+      const int statusH    = min(60, max(34, y1 - statusTop - 6));
+
+      statusRects[i] = { left, statusTop, contentW - 2 * contentPad, statusH };
+    }
+    return;
+  }
+
+  // LayoutType::Display3 — misma geometría que en draw3()
+  {
+    const int left = contentX + contentPad;
+    const int topY = 5;
+    const int bottomY = H - 5;
+    const int rows = 3;
+    const int rowH = (bottomY - topY) / rows;
+
+    for (int i = 0; i < rows; ++i) {
+      const int y0 = topY + i*rowH;
+      const int y1 = y0 + rowH;
+
+      const int roleBaseY = y0 + 18;
+      const int nameBaseY = roleBaseY + 36;
+      const int statusTop  = nameBaseY + 14;
+      const int statusH    = min(60, max(34, y1 - statusTop - 6));
+
+      statusRects[i] = { left, statusTop, contentW - 2 * contentPad, statusH };
+    }
+  }
 }
