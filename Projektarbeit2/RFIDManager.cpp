@@ -31,4 +31,3 @@ bool RFIDManager::readUID(String &uidOut) {
     rfid.PCD_StopCrypto1();
     return true;
 }
-
