@@ -7,6 +7,7 @@
 #include <Preferences.h>  //NVS
 #include <esp_sleep.h>  // Deep Sleep Mode
 
+
 #include "DisplayManager.h"
 #include "RFIDManager.h"
 
@@ -37,7 +38,7 @@ int layoutOverride = 0;
 
 
 // Deep Sleep Modus(ajústalo a 10–15 s)
-const unsigned long SLEEP_TIMEOUT_MS = 15000;
+const unsigned long SLEEP_TIMEOUT_MS = 5000;
 
 unsigned long lastActivityMs = 0;
 
@@ -45,7 +46,7 @@ static inline void touchActivity() { lastActivityMs = millis(); }
 
 static void goToSleep() {
   // Configura el wake por botón LOW (EXT0)
-  esp_sleep_enable_ext0_wakeup(BUTTON_RTC, 0); // 0 = LOW
+  esp_sleep_enable_ext0_wakeup(BUTTON_RTC, 1); // 0 = LOW
 
   Serial.println("-> Deep Sleep");
   delay(50);
@@ -106,14 +107,14 @@ static void connectWiFiAndSyncTime() {
   }
 }
 
-//Layout picker
+//Layout picker CHRIS
 static LayoutType pickLayout(size_t n) {
   if (n <= 1) return LayoutType::Display1;
   if (n == 2) return LayoutType::Display2;
   return LayoutType::Display3; // 3 o más (mostramos 3 primeras)
 }
 
-//API HTTP (CORS + JSON)
+//API HTTP (CORS + JSON)  LUIS Y CHRIS
 static void sendCors() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -197,7 +198,7 @@ static void handleGetState() {
 }
 
 
-// NVS Save { room, people[] } as JSON data
+// NVS Save { room, people[] } as JSON data LUIS
 static bool saveStateToNVS() {
   StaticJsonDocument<2048> doc;
   doc["room"] = roomText;
@@ -221,7 +222,7 @@ static bool saveStateToNVS() {
   return w > 0;
 }
 
-// Loads { room, people[] } from NVS (no drawing)
+// Loads { room, people[] } from NVS (no drawing) LUIS
 static bool loadStateFromNVS() {
   if (!prefs.begin("door", true)) {
     Serial.println("NVS: begin(read) failed");
@@ -248,7 +249,7 @@ static bool loadStateFromNVS() {
 }
 
 
-// Lee un tag RFID durante ~8s y devuelve { "uid": "HEX" } o 204 si no se leyó nada
+// Lee un tag RFID durante ~8s y devuelve { "uid": "HEX" } o 204 si no se leyó nada LUIS
 static void handleReadTag() {
   touchActivity();
   // CORS
@@ -285,8 +286,8 @@ static void handleReadTag() {
   server.send(204); // No Content
 }
 
-
-static void handlePostState() {
+//CHRIS
+static void handlePostState() { 
   touchActivity();
   String body = server.arg("plain");
   String err;
@@ -294,7 +295,7 @@ static void handlePostState() {
     sendCors(); server.send(400, "text/plain", "JSON invalido: " + err); return;
   }
 
-  // Libera el lector RFID del bus SPI antes de pintar
+  // Libera el lector RFID del bus SPI antes de pintar  LUIS
   pinMode(21, OUTPUT);
   digitalWrite(21, HIGH);
 
@@ -309,9 +310,7 @@ static void handlePostState() {
   sendCors(); server.send(200, "application/json", "{\"ok\":true}");
 }
 
-
-
-
+//CHRIS
 static void startHttpServer() {
   // Rutas que ya tenías
   server.on("/api/state", HTTP_OPTIONS, handleOptions);
@@ -323,16 +322,12 @@ static void startHttpServer() {
     server.send(200, "application/json", "{\"pong\":true}");
     
   });
-
   server.on("/api/read_tag", HTTP_OPTIONS, handleOptions);  //Read RFID-TAG
   server.on("/api/read_tag", HTTP_GET,     handleReadTag);  //Uploads UID to website
-
-
   server.onNotFound([]() {
     sendCors();
     server.send(404, "text/plain", "Not found");
   });
-
   server.begin();
 }
 
@@ -365,9 +360,9 @@ void setup() {
   }
 
   // mDNS SIEMPRE (independiente de loadStateFromNVS)
-  if (MDNS.begin("door")) {
+  if (MDNS.begin("display1")) {
     MDNS.addService("http", "tcp", 80);
-    Serial.println("mDNS: http://door.local");
+    Serial.println("mDNS: http://display1.local");
   }
 
   // Servidor HTTP SIEMPRE
@@ -379,7 +374,7 @@ void setup() {
   touchActivity();
 }
 
-
+//LUIS
 unsigned long lastRFIDms = 0;
 const unsigned long RFID_COOLDOWN = 700; // ms
 
