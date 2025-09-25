@@ -38,7 +38,7 @@ int layoutOverride = 0;
 
 
 // Deep Sleep Modus(ajústalo a 10–15 s)
-const unsigned long SLEEP_TIMEOUT_MS = 5000;
+const unsigned long SLEEP_TIMEOUT_MS = 60000;
 
 unsigned long lastActivityMs = 0;
 
@@ -77,6 +77,13 @@ static String getCurrentDate() {
   char buf[11];
   strftime(buf, sizeof(buf), "%d.%m.%Y", &ti);
   return String(buf);
+}
+
+// Devuelve true si el estado es un override que bloquea RFID
+static bool isOverrideStatus(const String& s) {
+  return s.equalsIgnoreCase("On Vacation")
+      || s.equalsIgnoreCase("In a Meeting")
+      || s.equalsIgnoreCase("Out of Office");
 }
 
 static void connectWiFiAndSyncTime() {
@@ -381,40 +388,47 @@ const unsigned long RFID_COOLDOWN = 700; // ms
 void loop() {
   server.handleClient();
 
-  String rawUid;
-  if (rfidManager.readUID(rawUid)) {
-    touchActivity();
-    unsigned long now = millis();
-    if (now - lastRFIDms > RFID_COOLDOWN) {
-      lastRFIDms = now;
+// RFID: alterna Present/Absent para la persona asociada al UID
+String rawUid;
+if (rfidManager.readUID(rawUid)) {
+  unsigned long now = millis();
+  if (now - lastRFIDms > RFID_COOLDOWN) {
+    lastRFIDms = now;
 
-      String uid = normalizeUID(rawUid);
-      int idx = findPersonIndexByUID(uid);
+    String uid = normalizeUID(rawUid);
+    int idx = findPersonIndexByUID(uid);
 
-      if (idx >= 0) {
-        people[idx].status = (people[idx].status == "Present") ? "Absent" : "Present";
-        Serial.printf("UID %s -> %s = %s\n",
-                      uid.c_str(), people[idx].name.c_str(), people[idx].status.c_str());
-
-        // Libera RFID del bus antes de pintar
-        pinMode(21, OUTPUT);
-        digitalWrite(21, HIGH);
-
-        // Refresco parcial del status
-        displayManager.showStatusPartial(idx, people[idx].status);
-
-        // Persistir con cooldown
-        if (now - lastPersistMs > PERSIST_COOLDOWN) {
-          saveStateToNVS();
-          lastPersistMs = now;
-        }
-      } else {
-        Serial.printf("UID %s no asignado\n", uid.c_str());
+    if (idx >= 0) {
+      // 🔒 Si tiene un estado especial, ignorar el RFID
+      if (isOverrideStatus(people[idx].status)) {
+        Serial.printf("UID %s ignorado: estado fijo \"%s\"\n",
+                      uid.c_str(), people[idx].status.c_str());
+        return; // no cambiar status ni refrescar
       }
+
+      people[idx].status = (people[idx].status == "Present") ? "Absent" : "Present";
+      Serial.printf("UID %s -> %s = %s\n",
+                    uid.c_str(), people[idx].name.c_str(), people[idx].status.c_str());
+
+      // Libera RFID del bus antes de pintar
+      pinMode(21, OUTPUT);
+      digitalWrite(21, HIGH);
+
+      // Refresco parcial del status
+      displayManager.showStatusPartial(idx, people[idx].status);
+
+      // Persistir con cooldown (lo que ya tenías)
+      if (now - lastPersistMs > PERSIST_COOLDOWN) {
+        saveStateToNVS();
+        lastPersistMs = now;
+      }
+    } else {
+      Serial.printf("UID %s no asignado\n", uid.c_str());
     }
   }
+}
+
   if (millis() - lastActivityMs > SLEEP_TIMEOUT_MS) {     //If no activity in SLEEP_TIMEOUT_MS, dann Sleep
     goToSleep();
   }
 }
-
