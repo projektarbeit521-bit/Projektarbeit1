@@ -144,7 +144,7 @@ void DisplayManager::draw3(const String&, const String&, const std::vector<Perso
     textLeft(left, nameBaseY, name);
 
     //Status variables
-    const int statusTop = nameBaseY + 14;
+    const int statusTop = nameBaseY + 24; //14
     const int statusH = min(60, max(34, y1 - statusTop-6));
 
     //status placement
@@ -171,11 +171,17 @@ void DisplayManager::showStatusPartial(int idx, const String& status) {
   const int H = display.height();
 
   const int m = 8;
-  int ax = ((r.x - m) < 0) ? 0 : ((r.x - m) & ~7);
-  int ax_end = (r.x + r.w + m + 7) & ~7;
-  if (ax_end > W) ax_end = W;          
-  int ay = max(0, r.y - m);
-  int ay_end = min(H, r.y + r.h + m);
+// Márgenes: Avoids superposition with letters like "q", "j", "g"
+const int mTop = 2;       
+const int mSide = 8;
+const int mBottom = 10;
+
+  int ax = ((r.x - mSide) < 0) ? 0 : ((r.x - mSide) & ~7);
+  int ax_end = (r.x + r.w + mSide + 7) & ~7;
+  if (ax_end > W) ax_end = W;  
+
+  int ay = max(0, r.y - mTop);
+  int ay_end = min(H, r.y + r.h + mBottom);
   int aw = ax_end - ax;
   int ah = ay_end - ay;
   if (aw <= 0 || ah <= 0) return;            
