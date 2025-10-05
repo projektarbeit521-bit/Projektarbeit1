@@ -432,3 +432,4 @@ if (rfidManager.readUID(rawUid)) {
     goToSleep();
   }
 }
+
