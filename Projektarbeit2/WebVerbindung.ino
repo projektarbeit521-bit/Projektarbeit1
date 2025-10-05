@@ -12,8 +12,8 @@
 #include "RFIDManager.h"
 
 //WLAN-CONNECTION
-const char* WIFI_SSID = "Luis Vásquez";
-const char* WIFI_PASS = "Luisenrique89";
+const char* WIFI_SSID = "KIT-IoT"; //Use KIT IoT WLAN
+const char* WIFI_PASS = "AY4v8UM0yvNCy3k8zZlgv7QG";
 
 //NVS (Non volatile Storage)
 Preferences prefs;
